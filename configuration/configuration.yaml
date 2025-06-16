@@ -1,0 +1,7 @@
+WEIGHTS_SUPERVISED_3_CLASSES_PATH: 'G:\My Drive\Brugada Documents\Model Weights\BrS Pattern Reference Models\BrS-Pattern-3-Class.h5'
+WEIGHTS_STUDENT_PATH: 'G:\My Drive\Brugada Documents\Python Notebooks\Semi-Supervised\weights\best_student_weights.weights.h5'
+XML_SYNCOPE_DIRECTORY: 'G:\My Drive\Brugada\DB Brugada 2025 - ECG Cartacei\Segnali digitalizzati\SINCOPI'
+XML_ASYMPTOMATIC_DIRECTORY: 'G:\My Drive\Brugada\DB Brugada 2025 - ECG Cartacei\Segnali digitalizzati\ASINTOMATICI'
+XML_EVENT_DIRECTORY: 'G:\My Drive\Brugada\DB Brugada 2025 - ECG Cartacei\Segnali digitalizzati\EVENTO'
+XML_ALL_DIRECTORY: 'G:\My Drive\Brugada\DB Brugada 2025 - ECG Cartacei\Segnali digitalizzati'
+TEST_OUTPUT_FOLDER: 'C:\Users\Alessandro\Desktop\workspace\Brugada-Event-Prediction\scripts\tests\output'
