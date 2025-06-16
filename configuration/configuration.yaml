@@ -5,3 +5,5 @@ XML_ASYMPTOMATIC_DIRECTORY: 'G:\My Drive\Brugada\DB Brugada 2025 - ECG Cartacei\
 XML_EVENT_DIRECTORY: 'G:\My Drive\Brugada\DB Brugada 2025 - ECG Cartacei\Segnali digitalizzati\EVENTO'
 XML_ALL_DIRECTORY: 'G:\My Drive\Brugada\DB Brugada 2025 - ECG Cartacei\Segnali digitalizzati'
 TEST_OUTPUT_FOLDER: 'C:\Users\Alessandro\Desktop\workspace\Brugada-Event-Prediction\scripts\tests\output'
+
+EVENT_MAT_FOLDER: 'G:\My Drive\Brugada Documents\Input Data For NN\Event-Asymptomatic-Dataset\Update_15-06'
