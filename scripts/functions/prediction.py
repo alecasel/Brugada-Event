@@ -159,7 +159,7 @@ def process_folder(xml_folder,
                    output_file,
                    model,
                    consider_embeddings=False,
-                   lead_for_umap=['V1'],
+                   lead_for_umap=['V1', 'V2'],
                    num_patients=10):
     """
     Processa tutti i file XML in una cartella specificata,

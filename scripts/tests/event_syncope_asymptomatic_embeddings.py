@@ -27,6 +27,7 @@ Z_student, patient_ids, classes = process_folder(xml_all_directory,
                                                  "",
                                                  student_model,
                                                  consider_embeddings=True,
-                                                 lead_for_umap=['V1'])
+                                                 lead_for_umap=['V1', 'V2'],
+                                                 num_patients=30)
 
 plot_umap_patient_clusters(Z_student, patient_ids, classes)
