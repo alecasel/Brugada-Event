@@ -1,6 +1,7 @@
 import os
 from matplotlib import pyplot as plt
 import numpy as np
+import pandas as pd
 
 
 def _get_test_data(filtered_data,
@@ -245,6 +246,36 @@ def process_folder(xml_folder,
 
     if consider_embeddings:
         return all_embeddings, all_patients, all_classes
+
+
+def process_json(json_filepath,
+                 output_file,
+                 model,
+                 leads=['V1', 'V2']):
+    """
+    Process the json file of the Gaita DB
+    """
+
+    from scripts.functions.ecg_extraction import import_ecg_data, lowpass
+    from scripts.functions.utils import save_predictions_to_excel
+    import json
+
+    # Leggi il file JSON
+    with open(json_filepath, 'r', encoding='utf-8') as file:
+        data = json.load(file)
+
+    print(f"Elaborazione di {len(data['patients'])} pazienti...")
+
+    # Itera su ogni paziente
+    for patient_name, patient_records in data['patients'].items():
+        print(f"\nElaborazione paziente: {patient_name}")
+
+        # Itera su ogni record del paziente
+        for i, record in enumerate(patient_records):
+            file_path = record.get('file_path', '')
+            print(f"  Record {i+1}: {file_path}")
+
+            # TODO: MAKE THE PREDICTION
 
 
 def _get_umap_patient_clusters(Z,
@@ -542,3 +573,136 @@ def _check_patient_classification_accuracy(cluster_labels, true_classes):
     accuracy = correct_predictions / len(cluster_labels)
 
     return accuracy, optimal_mapping, correct_mask
+
+
+def predict_class_by_severity(num_class_0, num_class_1, num_class_2):
+    """
+    Predice la classe basandosi sulla regola di aggregazione:
+    basta che ci sia una predizione a 1 che si va ad assegnare 1;
+    se non ci sono 1 ma c'è almeno un 2, allora si assegna 2;
+    si assegna 0 solo se ci sono tutti 0.
+    """
+    # Crea una lista delle classi presenti (quelle con valore > 0)
+    present_classes = []
+    if num_class_0 > 0:
+        present_classes.append(0)
+    if num_class_1 > 0:
+        present_classes.append(1)
+    if num_class_2 > 0:
+        present_classes.append(2)
+
+    # Applica la regola di aggregazione
+    if 1 in present_classes:
+        return 1
+    elif 2 in present_classes:
+        return 2
+    elif 0 in present_classes:
+        return 0
+    else:
+        # Se tutti i valori sono 0, assegna classe 0
+        return 0
+
+
+def aggregate_leads_for_xml(lead_predictions):
+    """
+    Aggrega le predizioni delle lead per un singolo xml_file.
+    Regola: basta una lead predetta come 1 per assegnare 1;
+    se non ci sono 1 ma c'è almeno un 2, si assegna 2;
+    si assegna 0 solo se ci sono tutti 0.
+    """
+    if 1 in lead_predictions:
+        return 1
+    elif 2 in lead_predictions:
+        return 2
+    else:
+        return 0
+
+
+def aggregate_xmls_for_patient(xml_predictions):
+    """
+    Aggrega le predizioni degli xml_file per un singolo paziente.
+    Stessa regola dell'aggregazione delle lead.
+    """
+    if 1 in xml_predictions:
+        return 1
+    elif 2 in xml_predictions:
+        return 2
+    else:
+        return 0
+
+
+def process_multilevel_aggregation(class_predictions_df):
+    """
+    Processa l'aggregazione su tre livelli
+    """
+    results = {
+        'lead_level': [],
+        'xml_level': [],
+        'patient_level': []
+    }
+
+    # LIVELLO 1: Predizione per ogni lead
+    print("Livello 1: Predizione per ogni lead...")
+    lead_results = []
+
+    for idx, row in class_predictions_df.iterrows():
+        predicted_class = predict_class_by_severity(
+            row['num_class_0'],
+            row['num_class_1'],
+            row['num_class_2']
+        )
+
+        lead_result = {
+            'patient': row['patient'],
+            'xml_file': row['xml_file'],
+            'lead': row['lead'],
+            'predicted_class': predicted_class,
+            'num_class_0': row['num_class_0'],
+            'num_class_1': row['num_class_1'],
+            'num_class_2': row['num_class_2']
+        }
+        lead_results.append(lead_result)
+
+    lead_df = pd.DataFrame(lead_results)
+    results['lead_level'] = lead_df
+
+    # LIVELLO 2: Aggregazione per xml_file
+    print("Livello 2: Aggregazione per xml_file...")
+    xml_results = []
+
+    for (patient, xml_file), group in lead_df.groupby(['patient', 'xml_file']):
+        lead_predictions = group['predicted_class'].tolist()
+        xml_prediction = aggregate_leads_for_xml(lead_predictions)
+
+        xml_result = {
+            'patient': patient,
+            'xml_file': xml_file,
+            'num_leads': len(group),
+            'lead_predictions': lead_predictions,
+            'xml_prediction': xml_prediction
+        }
+        xml_results.append(xml_result)
+
+    xml_df = pd.DataFrame(xml_results)
+    results['xml_level'] = xml_df
+
+    # LIVELLO 3: Aggregazione per paziente
+    print("Livello 3: Aggregazione per paziente...")
+    patient_results = []
+
+    for patient, group in xml_df.groupby('patient'):
+        xml_predictions = group['xml_prediction'].tolist()
+        patient_prediction = aggregate_xmls_for_patient(xml_predictions)
+
+        patient_result = {
+            'patient': patient,
+            'num_xml_files': len(group),
+            'xml_predictions': xml_predictions,
+            'patient_prediction': patient_prediction
+        }
+        patient_results.append(patient_result)
+
+    patient_df = pd.DataFrame(patient_results)
+    results['patient_level'] = patient_df
+
+    return results

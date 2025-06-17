@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 
 
 def import_variables_from_yaml(yaml_file):
@@ -30,7 +31,6 @@ def save_predictions_to_excel(lead,
     - The first sheet contains the class corresponding to the max probability.
     - The second sheet contains the individual predictions for each class.
     """
-    import pandas as pd
 
     if isinstance(predictions, list):
         predictions = np.array(predictions[0])
@@ -134,19 +134,58 @@ def _reorder_class_columns(df):
     """
     # Ottieni tutte le colonne del DataFrame
     all_columns = df.columns.tolist()
-    
+
     # Separa le colonne in categorie
     base_columns = ['patient', 'xml_file', 'lead']
-    predicted_columns = [col for col in all_columns if col.startswith('predicted_class_')]
+    predicted_columns = [
+        col for col in all_columns if col.startswith('predicted_class_')]
     num_columns = [col for col in all_columns if col.startswith('num_class_')]
-    other_columns = [col for col in all_columns if col not in base_columns + predicted_columns + num_columns]
-    
+    other_columns = [
+        col for col in all_columns if col not in base_columns + predicted_columns + num_columns]
+
     # Ordina le colonne predicted_class e num_class numericamente
     predicted_columns.sort(key=lambda x: int(x.split('_')[-1]))
     num_columns.sort(key=lambda x: int(x.split('_')[-1]))
-    
+
     # Crea l'ordine finale delle colonne
     ordered_columns = base_columns + other_columns + predicted_columns + num_columns
-    
+
     # Riordina il DataFrame
     return df[ordered_columns]
+
+
+def load_excel_data(file_path):
+    """
+    Carica i dati dal file Excel
+    """
+    try:
+        # Leggi entrambi i fogli
+        class_predictions = pd.read_excel(
+            file_path, sheet_name='Class_Predictions')
+        detailed_predictions = pd.read_excel(
+            file_path, sheet_name='Detailed_Predictions')
+
+        print("Dati caricati:")
+        print(f"- Class_Predictions: {len(class_predictions)} righe")
+        print(f"- Detailed_Predictions: {len(detailed_predictions)} righe")
+
+        return class_predictions, detailed_predictions
+
+    except Exception as e:
+        print(f"Errore nel caricamento del file: {e}")
+        return None, None
+
+
+def save_results(results, output_file="aggregation_results.xlsx"):
+    """
+    Salva i risultati in un file Excel
+    """
+    with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+        results['lead_level'].to_excel(
+            writer, sheet_name='Lead_Predictions', index=False)
+        results['xml_level'].to_excel(
+            writer, sheet_name='XML_Predictions', index=False)
+        results['patient_level'].to_excel(
+            writer, sheet_name='Patient_Predictions', index=False)
+
+    print(f"\nRisultati salvati in: {output_file}")

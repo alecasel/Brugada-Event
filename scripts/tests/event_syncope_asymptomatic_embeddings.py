@@ -5,7 +5,8 @@ sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from scripts.functions.utils import import_variables_from_yaml
-from scripts.functions.model import create_student_model, build_supervised_model
+from scripts.functions.model import create_student_model, \
+    build_supervised_model
 from scripts.functions.prediction import \
     process_folder, plot_umap_patient_clusters
 
