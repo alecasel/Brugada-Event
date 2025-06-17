@@ -23,6 +23,7 @@ def import_variables_from_yaml(yaml_file):
 def save_predictions_to_excel(lead,
                               predictions,
                               xml_file,
+                              subfolder_name,
                               output_file='predizioni.xlsx'):
     """
     Save predictions to an Excel file with two sheets:
@@ -37,6 +38,7 @@ def save_predictions_to_excel(lead,
     predicted_classes = [int(np.argmax(pred, axis=0)) for pred in predictions]
 
     new_row_class = {
+        'patient': subfolder_name,
         'xml_file': xml_file,
         'lead': lead,
     }
@@ -59,6 +61,7 @@ def save_predictions_to_excel(lead,
     detailed_predictions_rows = []
     for i, pred in enumerate(predictions):
         new_row_predictions = {
+            'patient': subfolder_name,
             'xml_file': xml_file,
             'lead': lead,
             'prediction_index': i,
@@ -133,7 +136,7 @@ def _reorder_class_columns(df):
     all_columns = df.columns.tolist()
     
     # Separa le colonne in categorie
-    base_columns = ['xml_file', 'lead']
+    base_columns = ['patient', 'xml_file', 'lead']
     predicted_columns = [col for col in all_columns if col.startswith('predicted_class_')]
     num_columns = [col for col in all_columns if col.startswith('num_class_')]
     other_columns = [col for col in all_columns if col not in base_columns + predicted_columns + num_columns]

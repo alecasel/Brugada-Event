@@ -159,7 +159,8 @@ def process_folder(xml_folder,
                    output_file,
                    model,
                    consider_embeddings=False,
-                   lead_for_umap=['V1', 'V2'],
+                   leads=['V1', 'V2'],
+                   excluded_folders=['SINCOPI', 'SINCOPI VAGALI'],
                    num_patients=10):
     """
     Processa tutti i file XML in una cartella specificata,
@@ -175,9 +176,9 @@ def process_folder(xml_folder,
             f"The file {output_file} already exists. " +
             "Do you want to delete (D) it or overwrite (O) it? " +
             "(delete/overwrite): ").strip().lower()
-        if user_input == 'd':
+        if user_input == 'd' or user_input == 'delete':
             os.remove(output_file)
-        elif user_input == 'o':
+        elif user_input == 'o' or user_input == 'overwrite':
             raise ValueError("Invalid input. " +
                              "Please enter 'd' or 'o'.")
 
@@ -191,14 +192,14 @@ def process_folder(xml_folder,
     for folder in sorted(os.listdir(xml_folder)):
         if not os.path.isdir(os.path.join(xml_folder, folder)):
             continue
-        if folder == "SINCOPI" or folder == "SINCOPI VAGALI":
+        if folder in excluded_folders:
             continue
         count_patients = 0
         folder_path = os.path.join(xml_folder, folder)
         subfolders = sorted(os.listdir(folder_path))
         for item in subfolders:
             if "_Assenza" in item:
-                continue
+                continue  # TODO
             if count_patients == num_patients:
                 continue
             item_path = os.path.join(xml_folder, folder, item)
@@ -212,11 +213,6 @@ def process_folder(xml_folder,
                         print(xml_file_path)
                         ecg_data, _, frequency = import_ecg_data(xml_file_path)
                         ecg_data_filtered = {}
-
-                        if not consider_embeddings:
-                            leads = ['V1', 'V2']
-                        else:
-                            leads = lead_for_umap
 
                         # Filtra i dati ECG con un filtro passa-basso
                         for lead in leads:
@@ -239,6 +235,7 @@ def process_folder(xml_folder,
                                         save_predictions_to_excel(lead,
                                                                   predictions,
                                                                   xml_file,
+                                                                  subfolder_name,
                                                                   output_file)
                                     else:
                                         # Salva embeddings e nome sottocartella

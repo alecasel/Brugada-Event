@@ -35,6 +35,23 @@ class AttentionLayer(layers.Layer):
         weighted_input = inputs * tf.expand_dims(attention_weights, -1)
         output = tf.reduce_sum(weighted_input, axis=1)
         return output
+    
+
+class CrossLeadAttention(layers.Layer):
+    """Attention mechanism across ECG leads"""
+    def __init__(self, num_heads=4, key_dim=32, **kwargs):
+        super().__init__(**kwargs)
+        self.num_heads = num_heads
+        self.key_dim = key_dim
+        self.mha = layers.MultiHeadAttention(
+            num_heads=num_heads, 
+            key_dim=key_dim
+        )
+        
+    def call(self, inputs):
+        # inputs: [batch, num_leads, features]
+        attended = self.mha(inputs, inputs)
+        return attended
 
 
 def build_supervised_model(seq_length,
@@ -173,4 +190,155 @@ def create_student_model(seq_length,
     model = models.Model(inputs=inputs, outputs=[
         class_output, contrastive_output])
 
+    return model
+
+
+def build_lead_feature_extractor():
+    """CNN feature extractor for individual ECG leads"""
+    return tf.keras.Sequential([
+        layers.Conv1D(64, kernel_size=3, activation='relu',
+                      kernel_regularizer=regularizers.l2(0.01)),
+        layers.BatchNormalization(),
+        layers.Conv1D(64, kernel_size=3, activation='relu',
+                      kernel_regularizer=regularizers.l2(0.01)),
+        layers.BatchNormalization(),
+        layers.MaxPooling1D(pool_size=2),
+        layers.Dropout(0.3),
+        
+        layers.Conv1D(32, kernel_size=3, activation='relu',
+                      kernel_regularizer=regularizers.l2(0.01)),
+        layers.BatchNormalization(),
+        layers.Conv1D(32, kernel_size=3, activation='relu',
+                      kernel_regularizer=regularizers.l2(0.01)),
+        layers.BatchNormalization(),
+        layers.MaxPooling1D(pool_size=2),
+        layers.Dropout(0.3)
+    ])
+
+
+def build_risk_stratification_model(seq_length,
+                                    num_leads=12,
+                                    unified_approach=True,
+                                    risk_output_type='probability'):
+    """
+    Build model for Brugada syndrome risk stratification
+    
+    Args:
+        seq_length: Length of ECG sequence
+        num_leads: Number of ECG leads (default 12)
+        risk_output_type: 'probability' (0-1) or 'classification' (low/high risk)
+    """
+    
+    # Input per tutte le derivazioni
+    inputs = Input(shape=(seq_length, num_leads))
+    
+    # Preprocessing
+    x = layers.BatchNormalization()(inputs)
+    x = layers.GaussianNoise(0.1)(x)  # Ridotto per multi-lead
+    x = layers.BatchNormalization()(x)
+    
+    # Opzione 1: CNN su tutte le derivazioni insieme
+    # (più semplice ma meno flessibile)
+    if unified_approach:  # Approccio unified
+        x = layers.Conv1D(128, kernel_size=5, activation='relu',
+                          kernel_regularizer=regularizers.l2(0.01))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Conv1D(128, kernel_size=5, activation='relu',
+                          kernel_regularizer=regularizers.l2(0.01))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.MaxPooling1D(pool_size=2)(x)
+        x = layers.Dropout(0.4)(x)
+        
+        x = layers.Conv1D(64, kernel_size=3, activation='relu',
+                          kernel_regularizer=regularizers.l2(0.01))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Conv1D(64, kernel_size=3, activation='relu',
+                          kernel_regularizer=regularizers.l2(0.01))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.MaxPooling1D(pool_size=2)(x)
+        x = layers.Dropout(0.4)(x)
+        
+        x = layers.Conv1D(32, kernel_size=3, activation='relu',
+                          kernel_regularizer=regularizers.l2(0.01))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Conv1D(32, kernel_size=3, activation='relu',
+                          kernel_regularizer=regularizers.l2(0.01))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.MaxPooling1D(pool_size=2)(x)
+        x = layers.Dropout(0.4)(x)
+    
+    else:  # Approccio per-lead (più complesso)
+        # Estrai features da ogni derivazione separatamente
+        feature_extractor = build_lead_feature_extractor()
+        lead_features = []
+        
+        for i in range(num_leads):
+            lead_input = tf.expand_dims(inputs[:, :, i], axis=-1)
+            lead_feature = feature_extractor(lead_input)
+            # Global average pooling per ogni derivazione
+            lead_feature = layers.GlobalAveragePooling1D()(lead_feature)
+            lead_features.append(lead_feature)
+        
+        # Stack features: [batch, num_leads, features]
+        x = tf.stack(lead_features, axis=1)
+        
+        # Cross-lead attention
+        x = CrossLeadAttention(num_heads=4, key_dim=32)(x)
+        
+        # Flatten per processing successivo
+        x = layers.Flatten()(x)
+        x = layers.Dense(128, activation='relu')(x)
+        x = layers.Dropout(0.4)(x)
+    
+    # Temporal modeling con LSTM
+    if x.shape.ndims > 2:  # Se abbiamo ancora dimensione temporale
+        x = layers.Bidirectional(layers.LSTM(64, return_sequences=True))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Bidirectional(layers.LSTM(32, return_sequences=True))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.4)(x)
+        
+        # Attention temporale
+        attention_output = AttentionLayer()(x)
+        x = attention_output
+    
+    # Risk prediction head
+    x = layers.Dense(64, activation='relu',
+                     kernel_regularizer=regularizers.l2(0.01))(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.5)(x)
+    
+    x = layers.Dense(32, activation='relu',
+                     kernel_regularizer=regularizers.l2(0.01))(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.5)(x)
+    
+    # Output layer
+    if risk_output_type == 'probability':
+        # Probabilità continua di rischio (0-1)
+        outputs = layers.Dense(1, activation='sigmoid', name='risk_probability')(x)
+    elif risk_output_type == 'classification':
+        # Classificazione basso/alto rischio
+        outputs = layers.Dense(2, activation='softmax', name='risk_class')(x)
+    else:
+        raise ValueError("risk_output_type must be 'probability' or 'classification'")
+    
+    model = models.Model(inputs=inputs, outputs=outputs)
+    
+    return model
+
+
+def compile_risk_model(model):
+    """Compile model with appropriate loss function"""
+    
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        loss='binary_crossentropy',
+        metrics=[
+            'binary_accuracy',
+            tf.keras.metrics.AUC(name='auc'),
+            tf.keras.metrics.Precision(name='precision'),
+            tf.keras.metrics.Recall(name='recall')
+        ]
+    )
     return model
