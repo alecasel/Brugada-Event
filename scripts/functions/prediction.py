@@ -256,7 +256,7 @@ def process_json(json_filepath,
     Process the json file of the Gaita DB
     """
 
-    from scripts.functions.ecg_extraction import import_ecg_data, lowpass
+    from scripts.functions.ecg_extraction import import_ecg_data, import_ecg_data_mac5, lowpass
     from scripts.functions.utils import save_predictions_to_excel
     import json
 
@@ -271,11 +271,40 @@ def process_json(json_filepath,
         print(f"\nElaborazione paziente: {patient_name}")
 
         # Itera su ogni record del paziente
-        for i, record in enumerate(patient_records):
+        for record in patient_records:
             file_path = record.get('file_path', '')
-            print(f"  Record {i+1}: {file_path}")
 
-            # TODO: MAKE THE PREDICTION
+            print(f"Elaborazione file: {file_path}")
+
+            if file_path.endswith('xml'):
+                ecg_data, _, frequency = import_ecg_data(file_path)
+
+            elif file_path.endswith('Xml'):
+                ecg_data, _, frequency = import_ecg_data_mac5(file_path)
+
+            ecg_data_filtered = {}
+
+            # Filtra i dati ECG con un filtro passa-basso
+            for lead in leads:
+                if lead in ecg_data:
+                    ecg_data_filtered[lead] = lowpass(
+                        ecg_data[lead]["V"], cutoff=10,
+                        fs=frequency)
+
+                    if np.allclose(
+                            ecg_data_filtered[lead], 0, atol=1e-6):
+                        print(
+                            f"⚠️ {lead} contiene tutti zero. Skip")
+                        continue
+
+                    predictions = _make_prediction(
+                        ecg_data_filtered[lead], frequency, model)
+                    if predictions is not None:
+                        save_predictions_to_excel(lead,
+                                                  predictions,
+                                                  file_path,
+                                                  patient_name,
+                                                  output_file)
 
 
 def _get_umap_patient_clusters(Z,

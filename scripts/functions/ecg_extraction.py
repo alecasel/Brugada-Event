@@ -45,6 +45,62 @@ def import_ecg_data(xml_file):
     # Calcola il tempo
     if "V1" in ecg_data:
         time = [i / frequency for i in range(ecg_data["V1"]["asizeVT"])]
+    else:
+        time = 0
+        print("WARNING: V1 not found in ecg_data")
+
+    return ecg_data, time, frequency
+
+
+def import_ecg_data_mac5(xml_file):
+
+    """
+    Importa i dati ECG da un file XML specifico per il formato Mac5.
+    :param xml_file: Percorso del file XML contenente i dati ECG.
+    :return: Dizionario contenente i dati ECG estratti, il tempo e la frequenza di campionamento.
+    """
+
+    import xml.etree.ElementTree as ET
+
+    # Carica il file XML
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+
+    # Namespace corretto
+    namespaces = {'ns': 'urn:ge:sapphire:sapphire_3'}
+
+    # Trova e filtra le ecgWaveform con asizeBT = 10000
+    waveforms = [wf for wf in root.findall(
+        ".//ns:ecgWaveformMXG/ns:ecgWaveform", namespaces=namespaces)
+        if int(wf.get("asizeBT", "0")) == 10000]  # Corretto asizeBT
+
+    # Estrai i dati delle onde ECG
+    ecg_data = {}
+    for waveform in waveforms:
+        lead = waveform.get("lead")
+        asizeBT = int(waveform.get("asizeBT", "0"))
+        vt_data = waveform.get("V")  # Assumendo che i dati siano in "V"
+
+        if lead and vt_data:
+            ecg_data[lead] = {
+                "asizeBT": asizeBT,
+                "V": [4.88 * int(value) / 1000 for value in vt_data.split()]
+            }
+
+    # Estrai la frequenza di campionamento
+    sample_rate = root.find(
+        ".//ns:ecgWaveformMXG/ns:sampleRate", namespaces=namespaces)
+    frequency = 1000  # Default
+    if sample_rate is not None and sample_rate.get("V"):
+        frequency = int(sample_rate.get("V"))
+
+    # Calcola il tempo
+    time = []
+    if "V1" in ecg_data:
+        time = [i / frequency for i in range(ecg_data["V1"]["asizeBT"])]
+    else:
+        time = 0
+        print("WARNING: V1 not found in ecg_data")
 
     return ecg_data, time, frequency
 
