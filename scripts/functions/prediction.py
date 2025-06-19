@@ -275,7 +275,7 @@ def process_json(json_filepath,
         df_existing = pd.read_excel(output_file)
         if not df_existing.empty:
             last_patient = df_existing['patient'].iloc[-1]
-            last_file = df_existing['file_path'].iloc[-1]
+            last_file = df_existing['xml_file'].iloc[-1]
 
             for idx_p, (p_name, records) in enumerate(all_patients):
                 if p_name == last_patient:
