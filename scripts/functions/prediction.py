@@ -256,7 +256,8 @@ def process_json(json_filepath,
     Process the json file of the Gaita DB
     """
 
-    from scripts.functions.ecg_extraction import import_ecg_data, import_ecg_data_mac5, lowpass
+    from scripts.functions.ecg_extraction import import_ecg_data, \
+        import_ecg_data_mac5, lowpass
     from scripts.functions.utils import save_predictions_to_excel
     import json
 
@@ -264,14 +265,40 @@ def process_json(json_filepath,
     with open(json_filepath, 'r', encoding='utf-8') as file:
         data = json.load(file)
 
-    print(f"Elaborazione di {len(data['patients'])} pazienti...")
+    # Recupera tutti i pazienti dal JSON
+    all_patients = list(data['patients'].items())
 
-    # Itera su ogni paziente
-    for patient_name, patient_records in data['patients'].items():
+    # Determina da dove partire
+    start_patient_idx = 0
+    start_record_idx = 0
+
+    if os.path.exists(output_file):
+        df_existing = pd.read_excel(output_file)
+        if not df_existing.empty:
+            last_patient = df_existing['patient'].iloc[-1]
+            last_file = df_existing['xml_file'].iloc[-1]
+
+            for idx_p, (p_name, records) in enumerate(all_patients):
+                if p_name == last_patient:
+                    for idx_r, record in enumerate(records):
+                        if record.get('file_path', '') == last_file:
+                            start_patient_idx = idx_p
+                            start_record_idx = idx_r + 1
+                            break
+                    break
+
+    # Elaborazione
+    print(f"Elaborazione di {len(all_patients)} pazienti...")
+
+    # Itera da start_patient_idx
+    for idx_p in range(start_patient_idx, len(all_patients)):
+        patient_name, patient_records = all_patients[idx_p]
         print(f"\nElaborazione paziente: {patient_name}")
 
-        # Itera su ogni record del paziente
-        for record in patient_records:
+        # Decidi da quale record iniziare
+        rec_start = start_record_idx if idx_p == start_patient_idx else 0
+        for idx_r in range(rec_start, len(patient_records)):
+            record = patient_records[idx_r]
             file_path = record.get('file_path', '')
 
             print(f"Elaborazione file: {file_path}")
