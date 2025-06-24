@@ -189,3 +189,41 @@ def save_results(results, output_file="aggregation_results.xlsx"):
             writer, sheet_name='Patient_Predictions', index=False)
 
     print(f"\nRisultati salvati in: {output_file}")
+
+
+def set_reproducible_config():
+
+    import torch
+    import random
+    import tensorflow as tf
+
+    SEED = 42
+
+    torch.manual_seed(SEED)
+
+    # Fissare il seed per Python
+    random.seed(SEED)
+
+    # Fissare il seed per NumPy
+    np.random.seed(SEED)
+
+    # Fissare il seed per TensorFlow
+    tf.random.set_seed(SEED)
+
+    # Forza TensorFlow a usare operazioni deterministiche (se possibile)
+    os.environ["PYTHONHASHSEED"] = str(SEED)
+    os.environ["TF_DETERMINISTIC_OPS"] = "1"
+    os.environ["TF_CUDNN_DETERMINISTIC"] = "1"
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
+    os.environ["TF_NUM_INTEROP_THREADS"] = "1"
+
+    tf.config.threading.set_intra_op_parallelism_threads(1)
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+
+    try:
+        tf.config.experimental.enable_op_determinism()
+    except Exception as e:
+        print(f"Determinism not fully supported: {e}")
+
+    tf.random.set_global_generator(tf.random.Generator.from_seed(SEED))
