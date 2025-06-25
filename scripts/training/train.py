@@ -1,17 +1,21 @@
-from scripts.functions.utils import import_variables_from_yaml, \
-    set_reproducible_config
-from scripts.functions.model import build_risk_stratification_model, \
-    compile_risk_model
-from sklearn.model_selection import train_test_split
-from collections import Counter
-import numpy as np
-from scripts.functions.dataset import select_data, prepare_brugada_dataset
-import glob
 import sys
 import os
 
 sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+from sklearn.utils import class_weight
+import numpy as np
+from scripts.functions.utils import import_variables_from_yaml, \
+    set_reproducible_config
+from scripts.functions.model import build_risk_stratification_model, \
+    compile_risk_model
+from collections import Counter
+from scripts.functions.dataset import fix_existing_data_constraints, \
+    select_data, prepare_brugada_dataset, unpack_data, split_data
+import glob
+from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
+from sklearn.preprocessing import LabelEncoder
 
 
 set_reproducible_config()
@@ -54,71 +58,39 @@ patients_list, ecgs_list, labels_event_list, \
 data = list(zip(patients_list, ecgs_list, labels_event_list,
                 sets_list, leads_list, signals_list))
 
-# Filtra solo i dati con label_event validi
-filtered_data = [d for d in data if d[2] in ("EVENT", "NO EVENT")]
-
-# Suddividi i dati in base al vincolo di set
-trainval_data = [d for d in filtered_data if d[3] in ("train/val",
-                                                      "train/val/test")]
-test_data = [d for d in filtered_data if d[3] == "train/val/test"]
-
-# Conta le classi per train/val
-labels_trainval = [d[2] for d in trainval_data]
-counter_trainval = Counter(labels_trainval)
-min_class_trainval = min(counter_trainval.values())
-
-# Bilancia il dataset train/val 50-50 tra EVENT e NO EVENT
-event_data_trainval = [d for d in trainval_data if d[2] == "EVENT"]
-no_event_data_trainval = [d for d in trainval_data if d[2] == "NO EVENT"]
-
-np.random.seed(42)
-event_data_trainval = np.random.choice(
-    event_data_trainval, min_class_trainval, replace=False)
-no_event_data_trainval = np.random.choice(
-    no_event_data_trainval, min_class_trainval, replace=False)
-
-balanced_trainval_data = np.concatenate(
-    [event_data_trainval, no_event_data_trainval])
-np.random.shuffle(balanced_trainval_data)
-
-# Split train/val 82.35%-17.65% (per ottenere 70-15 su totale)
-train_size = int(0.8235 * len(balanced_trainval_data))
-train_data = balanced_trainval_data[:train_size]
-val_data = balanced_trainval_data[train_size:]
-
-# Bilancia anche il test set (se vuoi)
-labels_test = [d[2] for d in test_data]
-counter_test = Counter(labels_test)
-min_class_test = min(counter_test.values()) if counter_test else 0
-
-if min_class_test > 0:
-    event_data_test = [d for d in test_data if d[2] == "EVENT"]
-    no_event_data_test = [d for d in test_data if d[2] == "NO EVENT"]
-    event_data_test = np.random.choice(
-        event_data_test, min_class_test, replace=False)
-    no_event_data_test = np.random.choice(
-        no_event_data_test, min_class_test, replace=False)
-    balanced_test_data = np.concatenate([event_data_test, no_event_data_test])
-    np.random.shuffle(balanced_test_data)
-    test_data = balanced_test_data
-else:
-    test_data = np.array([])
-
-
-# Separa le liste
-def unpack(data):
-    if len(data) == 0:
-        return [], [], [], [], [], []
-    return [list(x) for x in zip(*data)]
-
+fixed_data = fix_existing_data_constraints(data)
+train_data, val_data, test_data = split_data(fixed_data)
 
 train_patients, train_ecgs, train_labels, \
-    train_sets, train_leads, train_signals = unpack(train_data)
+    train_sets, train_leads, train_signals = unpack_data(train_data)
 val_patients, val_ecgs, val_labels, \
-    val_sets, val_leads, val_signals = unpack(val_data)
-test_patients, test_ecgs, test_labels, \
-    test_sets, test_leads, test_signals = unpack(test_data)
+    val_sets, val_leads, val_signals = unpack_data(val_data)
 
 print(f"Train: {Counter(train_labels)}")
 print(f"Val: {Counter(val_labels)}")
-print(f"Test: {Counter(test_labels)}")
+
+class_weights = class_weight.compute_class_weight(
+    'balanced', classes=np.unique(train_labels), y=train_labels)
+class_weights = dict(enumerate(class_weights))
+
+reduce_lr = ReduceLROnPlateau(
+    monitor='val_loss', factor=0.25, patience=7, min_lr=1e-7)
+
+early_stopping = EarlyStopping(
+    monitor='val_loss', patience=20, restore_best_weights=True)
+
+X_train = np.expand_dims(train_signals, axis=-1)
+X_valid = np.expand_dims(val_signals, axis=-1)
+label_encoder = LabelEncoder()
+Y_train = label_encoder.fit_transform(train_labels)
+Y_valid = label_encoder.transform(val_labels)
+
+history = risk_model.fit(
+    X_train, Y_train,
+    validation_data=(X_valid, Y_valid),
+    epochs=1,
+    verbose=1,
+    batch_size=32,
+    callbacks=[early_stopping, reduce_lr],
+    class_weight=class_weights
+)

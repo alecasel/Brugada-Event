@@ -227,7 +227,8 @@ def build_risk_stratification_model(seq_length,
     Args:
         seq_length: Length of ECG sequence
         num_leads: Number of ECG leads (default 12)
-        risk_output_type: 'probability' (0-1) or 'classification' (low/high risk)
+        risk_output_type: 'probability' (0-1) or 'classification'
+        (low/high risk)
     """
 
     # Input per tutte le derivazioni
@@ -274,11 +275,11 @@ def build_risk_stratification_model(seq_length,
             def __init__(self, lead_index, **kwargs):
                 super(LeadExtractor, self).__init__(**kwargs)
                 self.lead_index = lead_index
-            
+
             def call(self, inputs):
                 # Extract single lead and add channel dimension
                 return tf.expand_dims(inputs[:, :, self.lead_index], axis=-1)
-            
+
             def get_config(self):
                 config = super().get_config()
                 config.update({"lead_index": self.lead_index})
