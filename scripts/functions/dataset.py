@@ -1,64 +1,56 @@
-def preprocess_ecg_data(ecg_files):
-    """
-    """
-
-    from scripts.functions.ecg_extraction import import_ecg_data, lowpass
-    # TODO
-
-
-def prepare_brugada_dataset(ecg_files,
-                            clinical_data,
-                            test_size=0.15,
-                            val_size=0.15):
+def prepare_brugada_dataset(mat_files):
     """
     Prepara il dataset per il training del modello
     """
-    import numpy as np
-    import pandas as pd
-    from sklearn.model_selection import train_test_split
+    import scipy
+    from scripts.functions.visualize_ecg import convert_from_mat_format
 
-    # Carica e preprocessa ECG
-    X = preprocess_ecg_data(ecg_files)
+    patients_list = []
+    ecgs_list = []
+    leads_list = []
+    labels_event_list = []
+    signals_list = []
+    sets_list = []
 
-    # Definisci etichette di rischio
-    y = "TODO"
+    for mat_file in mat_files:
 
-    # Associa ogni dato a un paziente
-    # Si assume che ecg_files o clinical_data contenga una colonna/chiave 'patient_id'
+        # Load each file content into data
+        data = scipy.io.loadmat(mat_file)
 
-    # Estrai lista unica dei pazienti
-    if isinstance(ecg_files, pd.DataFrame):
-        patient_ids = ecg_files['patient_id'].unique()
-    else:
-        # Se ecg_files è una lista di dict o altro formato
-        patient_ids = np.unique([x['patient_id'] for x in ecg_files])
+        patients_list, ecgs_list, labels_event_list, \
+            sets_list, leads_list, signals_list = convert_from_mat_format(
+                data, patients_list, ecgs_list, labels_event_list,
+                sets_list, leads_list, signals_list)
 
-    # Split dei pazienti
-    patients_train, patients_temp = train_test_split(
-        patient_ids, test_size=(val_size + test_size), random_state=42
-    )
-    relative_val_size = val_size / (val_size + test_size)
-    patients_val, patients_test = train_test_split(
-        patients_temp, test_size=1 - relative_val_size, random_state=42
-    )
+    return patients_list, ecgs_list, labels_event_list, \
+        sets_list, leads_list, signals_list
 
-    # Crea maschere per assegnare i dati ai rispettivi split
-    def mask_by_patients(data, patients):
-        if isinstance(data, pd.DataFrame):
-            return data[data['patient_id'].isin(patients)]
+
+def select_data(patients_list,
+                ecgs_list,
+                labels_event_list,
+                sets_list,
+                leads_list,
+                signals_list,
+                leads_of_interest,
+                leads_to_invert):
+    """
+    """
+
+    for i, lead in enumerate(leads_list):
+        if lead not in leads_of_interest:
+            patients_list.pop(i)
+            ecgs_list.pop(i)
+            labels_event_list.pop(i)
+            sets_list.pop(i)
+            leads_list.pop(i)
+            signals_list.pop(i)
         else:
-            return [x for x in data if x['patient_id'] in patients]
+            if lead in leads_to_invert:
+                signal = signals_list[i]
+                inverted_signal = -signal
+                baseline_shift = signal.mean() + inverted_signal.mean()
+                signals_list[i] = inverted_signal - baseline_shift
 
-    X_train = mask_by_patients(X, patients_train)
-    X_val = mask_by_patients(X, patients_val)
-    X_test = mask_by_patients(X, patients_test)
-
-    y_train = mask_by_patients(y, patients_train)
-    y_val = mask_by_patients(y, patients_val)
-    y_test = mask_by_patients(y, patients_test)
-
-    return {
-        'train': (X_train, y_train),
-        'val': (X_val, y_val),
-        'test': (X_test, y_test)
-    }
+    return patients_list, ecgs_list, labels_event_list, \
+        sets_list, leads_list, signals_list
