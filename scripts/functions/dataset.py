@@ -1,3 +1,7 @@
+import numpy as np
+from collections import Counter
+
+
 def prepare_brugada_dataset(mat_files):
     """
     Prepara il dataset per il training del modello
@@ -37,31 +41,41 @@ def select_data(patients_list,
     """
     """
 
+    new_patients_list = []
+    new_ecgs_list = []
+    new_labels_event_list = []
+    new_sets_list = []
+    new_leads_list = []
+    new_signals_list = []
+
     for i, lead in enumerate(leads_list):
-        if lead not in leads_of_interest:
-            patients_list.pop(i)
-            ecgs_list.pop(i)
-            labels_event_list.pop(i)
-            sets_list.pop(i)
-            leads_list.pop(i)
-            signals_list.pop(i)
-        else:
+        if lead in leads_of_interest:
+            signal = signals_list[i]
             if lead in leads_to_invert:
-                signal = signals_list[i]
                 inverted_signal = -signal
                 baseline_shift = signal.mean() + inverted_signal.mean()
-                signals_list[i] = inverted_signal - baseline_shift
+                signal = inverted_signal - baseline_shift
 
-    return patients_list, ecgs_list, labels_event_list, \
-        sets_list, leads_list, signals_list
+            new_patients_list.append(patients_list[i])
+            new_ecgs_list.append(ecgs_list[i])
+            new_labels_event_list.append(labels_event_list[i])
+            new_sets_list.append(sets_list[i])
+            new_leads_list.append(lead)
+            new_signals_list.append(signal)
+
+    return new_patients_list, new_ecgs_list, new_labels_event_list, \
+        new_sets_list, new_leads_list, new_signals_list
 
 
 def split_data(data):
     """
-    Split data into train, validation, and test sets with balanced classes.
+    Split data into train, validation, and test sets ensuring that:
+    - Each patient appears in only one set
+    - Each ECG appears in only one set  
+    - All derivations of the same ECG stay together
+    - Balanced distribution of patients and classes across sets
     """
-    from collections import Counter
-    import numpy as np
+    from collections import defaultdict
 
     # Filtra solo i dati con label_event validi
     filtered_data = [d for d in data if d[2] in ("EVENT", "NO EVENT")]
@@ -71,242 +85,367 @@ def split_data(data):
     original_labels = [d[2] for d in filtered_data]
     original_counter = Counter(original_labels)
     print(f"Distribuzione classi totale: {dict(original_counter)}")
+    print(f"Totale campioni: {len(filtered_data)}")
 
-    original_sets = [d[3] for d in filtered_data]
-    sets_counter = Counter(original_sets)
-    print(f"Distribuzione vincoli set: {dict(sets_counter)}")
+    # Raggruppa per paziente e ECG
+    patient_ecg_groups = defaultdict(list)
+    for sample in filtered_data:
+        patient_id = sample[0]
+        ecg_id = sample[1]
+        key = (patient_id, ecg_id)
+        patient_ecg_groups[key].append(sample)
 
-    # Analisi per set e classe
-    for set_constraint in sets_counter.keys():
-        subset = [d for d in filtered_data if d[3] == set_constraint]
-        subset_labels = [d[2] for d in subset]
-        subset_counter = Counter(subset_labels)
-        print(f"Set '{set_constraint}': {dict(subset_counter)}")
+    print(
+        f"Numero totale di pazienti: {len(set(d[0] for d in filtered_data))}")
+    print(f"Numero totale di ECG: {len(patient_ecg_groups)}")
+    print("Media derivazioni per ECG: "
+          f"{len(filtered_data) / len(patient_ecg_groups):.1f}")
 
-    # Suddividi i dati in base al vincolo di set
-    trainval_data = [d for d in filtered_data if d[3]
-                     in ("train/val", "train/val/test")]
-    test_data = [d for d in filtered_data if d[3] == "train/val/test"]
+    # Analizza per PAZIENTE (non per ECG) - raggruppa tutto per paziente
+    patient_info = defaultdict(
+        lambda: {'ecgs': [], 'constraints': set(), 'labels': []})
 
-    print("\n=== DOPO SPLIT INIZIALE ===")
-    print(f"Train/Val samples: {len(trainval_data)}")
-    print(f"Test samples: {len(test_data)}")
+    for (patient_id, ecg_id), samples in patient_ecg_groups.items():
+        patient_info[patient_id]['ecgs'].append((patient_id, ecg_id))
+        patient_info[patient_id]['constraints'].update(
+            sample[3] for sample in samples)
+        patient_info[patient_id]['labels'].extend(
+            sample[2] for sample in samples)
 
-    # Verifica test set
-    if test_data:
-        test_labels = [d[2] for d in test_data]
-        test_counter = Counter(test_labels)
-        print(f"Test set distribution: {dict(test_counter)}")
+    # Analizza constraint per paziente
+    patient_constraints = {}
+    for patient_id, info in patient_info.items():
+        constraints = info['constraints']
+        if len(constraints) == 1:
+            patient_constraints[patient_id] = list(constraints)[0]
+        else:
+            # Paziente con constraint misti - prendi il più restrittivo
+            if "train/val/test" in constraints:
+                # Può andare ovunque
+                patient_constraints[patient_id] = "train/val/test"
+            else:
+                patient_constraints[patient_id] = "train/val"
 
-        # CONTROLLO CRITICO: verifica che entrambe le classi siano presenti
-        if len(test_counter) < 2:
-            print("⚠️  ERRORE: Il test set non contiene entrambe le classi!")
-            print("⚠️  Questo indica un problema nella assegnazione dei vincoli di set.")
-            print(
-                "⚠️  Suggerimento: rivedere come vengono assegnati i valori 'train/val/test'")
-            missing_class = "NO EVENT" if "EVENT" in test_counter else "EVENT"
-            print(f"⚠️  Classe mancante nel test set: {missing_class}")
+    print("\nAnalisi constraint per paziente:")
+    constraint_counts = Counter(patient_constraints.values())
+    for constraint, count in constraint_counts.items():
+        print(f"  {constraint}: {count} pazienti")
 
-            # Ritorna comunque i dati, ma avvisa dell'errore
-            return [], [], test_data
-    else:
-        print("⚠️  ERRORE: Test set vuoto!")
+    # Analizza distribuzione classi per paziente
+    patient_class_distribution = {}
+    for patient_id, info in patient_info.items():
+        labels = info['labels']
+        event_count = labels.count('EVENT')
+        no_event_count = labels.count('NO EVENT')
+
+        # Determina la "classe prevalente" del paziente
+        if event_count > no_event_count:
+            patient_class_distribution[patient_id] = 'EVENT'
+        elif no_event_count > event_count:
+            patient_class_distribution[patient_id] = 'NO EVENT'
+        else:
+            patient_class_distribution[patient_id] = 'MIXED'
+
+    print("\nDistribuzione classi per paziente:")
+    class_counts = Counter(patient_class_distribution.values())
+    for class_type, count in class_counts.items():
+        print(f"  {class_type}: {count} pazienti")
+
+    # Strategia: ignoriamo i constraint originali
+    # e facciamo uno split bilanciato
+    # Raggruppiamo i pazienti per classe prevalente
+    event_patients = [
+        pid for pid, cls in patient_class_distribution.items()
+        if cls == 'EVENT']
+    no_event_patients = [
+        pid for pid, cls in patient_class_distribution.items()
+        if cls == 'NO EVENT']
+    mixed_patients = [
+        pid for pid, cls in patient_class_distribution.items()
+        if cls == 'MIXED']
+
+    print("\nPazienti per classe prevalente:")
+    print(f"  EVENT: {len(event_patients)}")
+    print(f"  NO EVENT: {len(no_event_patients)}")
+    print(f"  MIXED: {len(mixed_patients)}")
+
+    # Split bilanciato: 70% train, 15% val, 15% test
+    # per ogni gruppo di pazienti
+    np.random.seed(42)
+
+    def split_patients_proportionally(patients_list,
+                                      train_ratio=0.70,
+                                      val_ratio=0.15):
+        """Split una lista di pazienti mantenendo le proporzioni"""
+        if not patients_list:
+            return [], [], []
+
+        shuffled = patients_list.copy()
+        np.random.shuffle(shuffled)
+
+        n_total = len(shuffled)
+        n_train = int(n_total * train_ratio)
+        n_val = int(n_total * val_ratio)
+
+        train_patients = shuffled[:n_train]
+        val_patients = shuffled[n_train:n_train + n_val]
+        test_patients = shuffled[n_train + n_val:]
+
+        return train_patients, val_patients, test_patients
+
+    # Split per ogni gruppo di classe
+    event_train, event_val, event_test = split_patients_proportionally(
+        event_patients)
+    no_event_train, no_event_val, no_event_test = \
+        split_patients_proportionally(no_event_patients)
+    mixed_train, mixed_val, mixed_test = split_patients_proportionally(
+        mixed_patients)
+
+    # Combina i risultati
+    train_patients = event_train + no_event_train + mixed_train
+    val_patients = event_val + no_event_val + mixed_val
+    test_patients = event_test + no_event_test + mixed_test
+
+    print("\nSplit finale pazienti:")
+    print(f"Train: {len(train_patients)} (EVENT: {len(event_train)}, "
+          f"NO EVENT: {len(no_event_train)}, MIXED: {len(mixed_train)})")
+    print(f"Val: {len(val_patients)} (EVENT: {len(event_val)}, "
+          f"NO EVENT: {len(no_event_val)}, MIXED: {len(mixed_val)})")
+    print(f"Test: {len(test_patients)} (EVENT: {len(event_test)}, "
+          f"NO EVENT: {len(no_event_test)}, MIXED: {len(mixed_test)})")
+
+    # Verifica che non ci siano sovrapposizioni
+    train_set = set(train_patients)
+    val_set = set(val_patients)
+    test_set = set(test_patients)
+
+    train_val_overlap = train_set.intersection(val_set)
+    train_test_overlap = train_set.intersection(test_set)
+    val_test_overlap = val_set.intersection(test_set)
+
+    if train_val_overlap or train_test_overlap or val_test_overlap:
+        print("❌ ERRORE: Sovrapposizioni trovate nella divisione pazienti!")
         return [], [], []
 
-    # Conta le classi per train/val
-    labels_trainval = [d[2] for d in trainval_data]
-    counter_trainval = Counter(labels_trainval)
-    print(f"Train/Val distribution: {dict(counter_trainval)}")
+    # Costruisci i dataset finali raccogliendo tutti gli ECG per ogni paziente
+    train_data = []
+    val_data = []
+    test_data = []
 
-    if len(counter_trainval) < 2:
-        print("⚠️  ERRORE: Train/Val set non contiene entrambe le classi!")
-        return trainval_data, [], test_data
+    for patient_id in train_patients:
+        for ecg_key in patient_info[patient_id]['ecgs']:
+            train_data.extend(patient_ecg_groups[ecg_key])
 
-    min_class_trainval = min(counter_trainval.values())
-    print(f"Min class count for balancing train/val: {min_class_trainval}")
+    for patient_id in val_patients:
+        for ecg_key in patient_info[patient_id]['ecgs']:
+            val_data.extend(patient_ecg_groups[ecg_key])
 
-    # Bilancia il dataset train/val 50-50 tra EVENT e NO EVENT
-    event_data_trainval = [d for d in trainval_data if d[2] == "EVENT"]
-    no_event_data_trainval = [d for d in trainval_data if d[2] == "NO EVENT"]
+    for patient_id in test_patients:
+        for ecg_key in patient_info[patient_id]['ecgs']:
+            test_data.extend(patient_ecg_groups[ecg_key])
 
-    np.random.seed(42)
-    # Use random.choices or numpy indexing instead of np.random.choice on structured data
-    event_indices = np.random.choice(
-        len(event_data_trainval), min_class_trainval, replace=False)
-    no_event_indices = np.random.choice(
-        len(no_event_data_trainval), min_class_trainval, replace=False)
-
-    event_data_trainval = [event_data_trainval[i] for i in event_indices]
-    no_event_data_trainval = [no_event_data_trainval[i]
-                              for i in no_event_indices]
-
-    balanced_trainval_data = event_data_trainval + no_event_data_trainval
-    np.random.shuffle(balanced_trainval_data)
-
-    # Split train/val 82.35%-17.65% (per ottenere 70-15 su totale)
-    train_size = int(0.8235 * len(balanced_trainval_data))
-    train_data = balanced_trainval_data[:train_size]
-    val_data = balanced_trainval_data[train_size:]
-
-    print(f"\n=== RISULTATI FINALI ===")
+    print("\n=== RISULTATI FINALI ===")
     print(f"Train samples: {len(train_data)}")
     print(f"Val samples: {len(val_data)}")
     print(f"Test samples: {len(test_data)}")
 
-    # Bilancia anche il test set solo se entrambe le classi sono presenti
-    labels_test = [d[2] for d in test_data]
-    counter_test = Counter(labels_test)
-    min_class_test = min(counter_test.values()) if len(
-        counter_test) == 2 else 0
+    # Conta ECG per set
+    train_ecg_count = len(set((d[0], d[1]) for d in train_data))
+    val_ecg_count = len(set((d[0], d[1]) for d in val_data))
+    test_ecg_count = len(set((d[0], d[1]) for d in test_data))
 
-    if min_class_test > 0:
-        event_data_test = [d for d in test_data if d[2] == "EVENT"]
-        no_event_data_test = [d for d in test_data if d[2] == "NO EVENT"]
+    print(f"Train ECG: {train_ecg_count}")
+    print(f"Val ECG: {val_ecg_count}")
+    print(f"Test ECG: {test_ecg_count}")
 
-        print(f"Balancing test set - min class: {min_class_test}")
+    # Verifica distribuzione classi
+    train_labels = [d[2] for d in train_data]
+    val_labels = [d[2] for d in val_data]
+    test_labels = [d[2] for d in test_data]
 
-        event_indices_test = np.random.choice(
-            len(event_data_test), min_class_test, replace=False)
-        no_event_indices_test = np.random.choice(
-            len(no_event_data_test), min_class_test, replace=False)
+    train_counter = Counter(train_labels)
+    val_counter = Counter(val_labels)
+    test_counter = Counter(test_labels)
 
-        event_data_test = [event_data_test[i] for i in event_indices_test]
-        no_event_data_test = [no_event_data_test[i]
-                              for i in no_event_indices_test]
+    print("\nDistribuzione classi:")
+    print(f"Train: {dict(train_counter)}")
+    print(f"Val: {dict(val_counter)}")
+    print(f"Test: {dict(test_counter)}")
 
-        balanced_test_data = event_data_test + no_event_data_test
-        np.random.shuffle(balanced_test_data)
-        test_data = balanced_test_data
+    # Verifica pazienti unici finali
+    train_patients_final = set(d[0] for d in train_data)
+    val_patients_final = set(d[0] for d in val_data)
+    test_patients_final = set(d[0] for d in test_data)
 
-        print(f"Final test samples after balancing: {len(test_data)}")
-    else:
-        print("⚠️  Mantengo test set non bilanciato a causa della mancanza di una classe")
+    print("\nPazienti unici finali:")
+    print(f"Train: {len(train_patients_final)}")
+    print(f"Val: {len(val_patients_final)}")
+    print(f"Test: {len(test_patients_final)}")
+
+    # Verifica sovrapposizioni pazienti
+    train_val_final_overlap = train_patients_final.intersection(
+        val_patients_final)
+    train_test_final_overlap = train_patients_final.intersection(
+        test_patients_final)
+    val_test_final_overlap = val_patients_final.intersection(
+        test_patients_final)
+
+    print("\nSovrapposizioni pazienti:")
+    print(
+        f"Train-Val: {len(train_val_final_overlap)} "
+        f"{'✅' if len(train_val_final_overlap) == 0 else '❌'}")
+    print(
+        f"Train-Test: {len(train_test_final_overlap)} "
+        f"{'✅' if len(train_test_final_overlap) == 0 else '❌'}")
+    print(
+        f"Val-Test: {len(val_test_final_overlap)} "
+        f"{'✅' if len(val_test_final_overlap) == 0 else '❌'}")
+
+    # Verifica ECG unici
+    train_ecg_ids = set((d[0], d[1]) for d in train_data)
+    val_ecg_ids = set((d[0], d[1]) for d in val_data)
+    test_ecg_ids = set((d[0], d[1]) for d in test_data)
+
+    train_val_ecg_overlap = train_ecg_ids.intersection(val_ecg_ids)
+    train_test_ecg_overlap = train_ecg_ids.intersection(test_ecg_ids)
+    val_test_ecg_overlap = val_ecg_ids.intersection(test_ecg_ids)
+
+    print("\nSovrapposizioni ECG:")
+    print(
+        f"Train-Val: {len(train_val_ecg_overlap)} "
+        f"{'✅' if len(train_val_ecg_overlap) == 0 else '❌'}")
+    print(
+        f"Train-Test: {len(train_test_ecg_overlap)} "
+        f"{'✅' if len(train_test_ecg_overlap) == 0 else '❌'}")
+    print(
+        f"Val-Test: {len(val_test_ecg_overlap)} "
+        f"{'✅' if len(val_test_ecg_overlap) == 0 else '❌'}")
+
+    # Verifica conservazione dati
+    total_final = len(train_data) + len(val_data) + len(test_data)
+    print("\nVerifica conservazione dati:")
+    print(f"Dati originali filtrati: {len(filtered_data)}")
+    print(f"Dati finali totali: {total_final}")
+    print(
+        "Dati conservati: "
+        f"{'✅ SÌ' if total_final == len(filtered_data) else '❌ NO'}")
 
     return train_data, val_data, test_data
-
-
-def assign_set_constraints_stratified(data, test_ratio=0.15, val_ratio=0.15):
-    """
-    Assegna i vincoli di set in modo stratificato mantenendo le proporzioni delle classi.
-
-    Args:
-        data: lista di tuple (feature, ..., label, ...)
-        test_ratio: proporzione per il test set
-        val_ratio: proporzione per il validation set (sul totale)
-
-    Returns:
-        data with updated set constraints
-    """
-    from collections import defaultdict
-    import numpy as np
-
-    # Raggruppa per classe
-    class_data = defaultdict(list)
-    for item in data:
-        label = item[2]  # assumendo che il label sia in posizione 2
-        class_data[label].append(item)
-
-    stratified_data = []
-    np.random.seed(42)
-
-    for label, items in class_data.items():
-        items = list(items)  # copia per non modificare l'originale
-        np.random.shuffle(items)
-
-        n_total = len(items)
-        n_test = int(test_ratio * n_total)
-        n_val = int(val_ratio * n_total)
-        n_train = n_total - n_test - n_val
-
-        print(
-            f"Classe {label}: {n_total} totali -> {n_train} train, {n_val} val, {n_test} test")
-
-        # Assegna i vincoli
-        for i, item in enumerate(items):
-            # Crea una nuova tupla con il vincolo aggiornato
-            if i < n_train:
-                constraint = "train/val"
-            elif i < n_train + n_val:
-                constraint = "train/val"  # val sarà separato dopo nel tuo split_data
-            else:
-                constraint = "train/val/test"  # questi andranno nel test
-
-            # Aggiorna la tupla (assumendo che il constraint sia in posizione 3)
-            updated_item = list(item)
-            updated_item[3] = constraint
-            stratified_data.append(tuple(updated_item))
-
-    return stratified_data
-
-
-def fix_existing_data_constraints(data):
-    """
-    Fix per i tuoi dati esistenti - riassegna i vincoli in modo stratificato
-    """
-    from collections import defaultdict
-    import numpy as np
-
-    # Filtra solo i dati validi
-    valid_data = [d for d in data if d[2] in ("EVENT", "NO EVENT")]
-
-    # Raggruppa per classe
-    class_data = defaultdict(list)
-    for item in valid_data:
-        label = item[2]
-        class_data[label].append(item)
-
-    print("=== FIXING SET CONSTRAINTS ===")
-
-    fixed_data = []
-    np.random.seed(42)
-
-    # Calcola le proporzioni target
-    total_items = len(valid_data)
-    test_size = int(0.15 * total_items)  # 15% per test
-
-    for label, items in class_data.items():
-        items = list(items)
-        np.random.shuffle(items)
-
-        n_total = len(items)
-        # Mantieni la proporzione di test per classe
-        n_test = int(0.15 * n_total)
-        n_trainval = n_total - n_test
-
-        print(
-            f"Classe {label}: {n_total} totali -> {n_trainval} train/val, {n_test} test")
-
-        # Assegna i nuovi vincoli
-        for i, item in enumerate(items):
-            updated_item = list(item)
-            if i < n_trainval:
-                updated_item[3] = "train/val"
-            else:
-                updated_item[3] = "train/val/test"
-
-            fixed_data.append(tuple(updated_item))
-
-    # Verifica il risultato
-    print("\n=== VERIFICA DOPO FIX ===")
-    from collections import Counter
-
-    labels = [d[2] for d in fixed_data]
-    constraints = [d[3] for d in fixed_data]
-
-    print(f"Distribuzione classi: {dict(Counter(labels))}")
-    print(f"Distribuzione vincoli: {dict(Counter(constraints))}")
-
-    # Verifica stratificazione
-    for constraint in set(constraints):
-        subset = [d for d in fixed_data if d[3] == constraint]
-        subset_labels = [d[2] for d in subset]
-        subset_counter = Counter(subset_labels)
-        print(f"Set '{constraint}': {dict(subset_counter)}")
-
-    return fixed_data
 
 
 def unpack_data(data):
     if len(data) == 0:
         return [], [], [], [], [], []
     return [list(x) for x in zip(*data)]
+
+
+def organize_ecg_data_for_multihead(patients_list,
+                                    ecgs_list,
+                                    signals_list,
+                                    leads_list,
+                                    labels_list,
+                                    leads_of_interest):
+    """
+    Organizza i dati ECG per il modello multi-head attention.
+
+    Logica:
+    - Ogni (paziente, ECG) diventa un campione separato
+    - Per ogni campione, raggruppa tutte le derivazioni disponibili
+    - Se mancano derivazioni, riempi con zeri
+
+    Args:
+        patients_list: Lista pazienti
+        ecgs_list: Lista ID ECG
+        signals_list: Lista segnali (ogni elemento è un array 1D)
+        leads_list: Lista derivazioni corrispondenti
+        labels_list: Lista labels
+        target_leads: Numero derivazioni target (default 12)
+
+    Returns:
+        X: Array (n_samples, seq_length, num_leads)
+        y: Array labels
+        sample_info: Lista con info (patient, ecg) per ogni campione
+    """
+
+    # Raggruppa per (paziente, ECG)
+    ecg_data = {}
+    for patient, ecg, signal, lead, label in zip(patients_list, ecgs_list,
+                                                 signals_list, leads_list,
+                                                 labels_list):
+        key = (patient, ecg)
+        if key not in ecg_data:
+            ecg_data[key] = {
+                'signals': {},  # Dict: lead -> signal
+                'label': label,
+                'patient': patient,
+                'ecg': ecg
+            }
+        ecg_data[key]['signals'][lead] = signal
+
+    # Determina lunghezza massima segnali
+    all_signals = []
+    for data in ecg_data.values():
+        all_signals.extend(data['signals'].values())
+    max_length = max(len(signal) for signal in all_signals)
+
+    print(f"Numero campioni ECG: {len(ecg_data)}")
+    print(f"Lunghezza massima segnale: {max_length}")
+
+    # Costruisci arrays finali
+    n_samples = len(ecg_data)
+    X = np.zeros((n_samples, max_length, len(leads_of_interest)))
+    y = []
+    sample_info = []
+
+    for i, (key, data) in enumerate(ecg_data.items()):
+        patient, ecg = key
+        y.append(data['label'])
+        sample_info.append({'patient': patient, 'ecg': ecg})
+
+        # Riempi le derivazioni disponibili
+        available_leads = list(data['signals'].keys())
+        print(f"Sample {i}: Patient {patient}, ECG {ecg}, "
+              f"Leads: {available_leads}")
+
+        for lead, signal in data['signals'].items():
+            if lead in leads_of_interest:
+                lead_idx = leads_of_interest.index(lead)
+                if lead_idx < len(leads_of_interest):
+                    # Padding se il segnale è più corto
+                    padded_signal = np.pad(signal,
+                                           (0, max_length - len(signal)),
+                                           mode='constant', constant_values=0)
+                    X[i, :, lead_idx] = padded_signal
+            # else:
+            #     print(f"Warning: Lead {lead} non standard, saltata")
+
+    return X, np.array(y), sample_info
+
+
+def print_data_summary(X,
+                       y,
+                       sample_info,
+                       dataset_name="Dataset"):
+    """Stampa riassunto del dataset"""
+
+    print(f"\n=== {dataset_name} Summary ===")
+    print(f"Shape: {X.shape}")
+    print(f"Labels distribution: {Counter(y)}")
+
+    # Conta derivazioni non-zero per campione
+    non_zero_leads = []
+    for i in range(X.shape[0]):
+        # Conta derivazioni che hanno almeno un valore non-zero
+        leads_with_data = np.sum(np.any(X[i] != 0, axis=0))
+        non_zero_leads.append(leads_with_data)
+
+    print(f"Derivazioni per campione - Min: {min(non_zero_leads)}, "
+          f"Max: {max(non_zero_leads)}, Media: {np.mean(non_zero_leads):.1f}")
+
+    # Mostra alcuni esempi
+    print("Primi 5 campioni:")
+    for i in range(min(5, len(sample_info))):
+        info = sample_info[i]
+        leads_count = non_zero_leads[i]
+        print(f"  Sample {i}: Patient {info['patient']}, ECG {info['ecg']}, "
+              f"{leads_count} derivazioni, Label: {y[i]}")

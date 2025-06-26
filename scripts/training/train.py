@@ -11,7 +11,7 @@ from scripts.functions.utils import import_variables_from_yaml, \
 from scripts.functions.model import build_risk_stratification_model, \
     compile_risk_model
 from collections import Counter
-from scripts.functions.dataset import fix_existing_data_constraints, \
+from scripts.functions.dataset import organize_ecg_data_for_multihead, print_data_summary, \
     select_data, prepare_brugada_dataset, unpack_data, split_data
 import glob
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
@@ -25,6 +25,7 @@ leads_to_invert = ['II', 'III', 'aVF']
 
 risk_model = build_risk_stratification_model(seq_length=851,
                                              num_leads=6,
+                                             num_heads_cross_attention=3,
                                              unified_approach=False,
                                              risk_output_type='classification')
 compile_risk_model(risk_model)
@@ -58,8 +59,7 @@ patients_list, ecgs_list, labels_event_list, \
 data = list(zip(patients_list, ecgs_list, labels_event_list,
                 sets_list, leads_list, signals_list))
 
-fixed_data = fix_existing_data_constraints(data)
-train_data, val_data, test_data = split_data(fixed_data)
+train_data, val_data, test_data = split_data(data)
 
 train_patients, train_ecgs, train_labels, \
     train_sets, train_leads, train_signals = unpack_data(train_data)
@@ -79,11 +79,39 @@ reduce_lr = ReduceLROnPlateau(
 early_stopping = EarlyStopping(
     monitor='val_loss', patience=20, restore_best_weights=True)
 
-X_train = np.expand_dims(train_signals, axis=-1)
-X_valid = np.expand_dims(val_signals, axis=-1)
+# Applica la trasformazione
+print("Elaborazione training set...")
+X_train, Y_train, train_sample_info = organize_ecg_data_for_multihead(
+    train_patients, train_ecgs, train_signals, train_leads, train_labels,
+    leads_of_interest)
+
+print("\nElaborazione validation set...")
+X_valid, Y_valid, val_sample_info = organize_ecg_data_for_multihead(
+    val_patients, val_ecgs, val_signals, val_leads, val_labels,
+    leads_of_interest)
+
+# Encoding delle labels assicurando che la classe negativa ("NO") sia 0
 label_encoder = LabelEncoder()
-Y_train = label_encoder.fit_transform(train_labels)
-Y_valid = label_encoder.transform(val_labels)
+# Ordina le classi in modo che quella che contiene "NO" sia la prima
+classes = sorted(set(Y_train), key=lambda x: (not ("NO" in x), x))
+label_encoder.fit(classes)
+Y_train_encoded = label_encoder.transform(Y_train)
+Y_valid_encoded = label_encoder.transform(Y_valid)
+
+# Stampa riassunti
+print_data_summary(X_train, Y_train, train_sample_info, "Training")
+print_data_summary(X_valid, Y_valid, val_sample_info, "Validation")
+
+print("\nLabel encoding:")
+for i, label in enumerate(label_encoder.classes_):
+    print(f"  {label} -> {i}")
+
+# Verifica finale
+print("\nFinal shapes:")
+print(f"X_train: {X_train.shape}")  # (n_samples, seq_length, 12)
+print(f"X_valid: {X_valid.shape}")
+print(f"Y_train_encoded: {Y_train_encoded.shape}")
+print(f"Y_valid_encoded: {Y_valid_encoded.shape}")
 
 history = risk_model.fit(
     X_train, Y_train,

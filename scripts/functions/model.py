@@ -219,6 +219,7 @@ def build_lead_feature_extractor():
 
 def build_risk_stratification_model(seq_length,
                                     num_leads=12,
+                                    num_heads_cross_attention=4,
                                     unified_approach=True,
                                     risk_output_type='probability'):
     """
@@ -307,7 +308,8 @@ def build_risk_stratification_model(seq_length,
         x = LeadFeatureStacker()(lead_features)
 
         # Cross-lead attention
-        x = CrossLeadAttention(num_heads=4, key_dim=32)(x)
+        x = CrossLeadAttention(num_heads=num_heads_cross_attention,
+                               key_dim=32)(x)
 
         # Flatten per processing successivo
         x = layers.Flatten()(x)
