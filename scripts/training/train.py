@@ -11,8 +11,9 @@ from scripts.functions.utils import import_variables_from_yaml, \
 from scripts.functions.model import build_risk_stratification_model, \
     compile_risk_model
 from collections import Counter
-from scripts.functions.dataset import organize_ecg_data_for_multihead, print_data_summary, \
-    select_data, prepare_brugada_dataset, unpack_data, split_data
+from scripts.functions.dataset import organize_ecg_data_for_multihead, \
+    print_data_summary, select_data, prepare_brugada_dataset, unpack_data, \
+    split_data
 import glob
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
 from sklearn.preprocessing import LabelEncoder

@@ -71,7 +71,7 @@ def split_data(data):
     """
     Split data into train, validation, and test sets ensuring that:
     - Each patient appears in only one set
-    - Each ECG appears in only one set  
+    - Each ECG appears in only one set
     - All derivations of the same ECG stay together
     - Balanced distribution of patients and classes across sets
     """
