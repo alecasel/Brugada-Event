@@ -28,7 +28,7 @@ risk_model = build_risk_stratification_model(seq_length=851,
                                              num_leads=6,
                                              num_heads_cross_attention=3,
                                              unified_approach=False,
-                                             risk_output_type='classification')
+                                             risk_output_type='probability')
 compile_risk_model(risk_model)
 
 for layer in risk_model.layers:
@@ -115,8 +115,8 @@ print(f"Y_train_encoded: {Y_train_encoded.shape}")
 print(f"Y_valid_encoded: {Y_valid_encoded.shape}")
 
 history = risk_model.fit(
-    X_train, Y_train,
-    validation_data=(X_valid, Y_valid),
+    X_train, Y_train_encoded,
+    validation_data=(X_valid, Y_valid_encoded),
     epochs=1,
     verbose=1,
     batch_size=32,
