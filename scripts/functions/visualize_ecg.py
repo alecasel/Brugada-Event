@@ -3,6 +3,13 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
+def extract_sequences(sequences_vector):
+    sequences = []
+    for cell in np.squeeze(sequences_vector):
+        sequences.append(np.squeeze(cell))
+    return np.vstack(sequences)
+
+
 def convert_from_mat_format(data,
                             patients_list,
                             ecgs_list,
@@ -51,11 +58,7 @@ def convert_from_mat_format(data,
                 leads_list.append(lead)
 
         elif k == 'X':  # Signal
-            heartbeat_signal = data[k].flatten()
-            for hs in heartbeat_signal:
-                signal = heartbeat_signal[0][0]
-                # Update the signal list
-                signals_list.append(signal)
+            signals_list.extend(extract_sequences(data[k]))
 
     return patients_list, ecgs_list, labels_event_list, \
         sets_list, leads_list, signals_list

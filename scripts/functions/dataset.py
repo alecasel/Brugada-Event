@@ -347,49 +347,50 @@ def organize_ecg_data_for_multihead(patients_list,
                                     leads_of_interest):
     """
     Organizza i dati ECG per il modello multi-head attention.
-
-    Logica:
-    - Ogni (paziente, ECG) diventa un campione separato
-    - Per ogni campione, raggruppa tutte le derivazioni disponibili
-    - Se mancano derivazioni, riempi con zeri
-
-    Args:
-        patients_list: Lista pazienti
-        ecgs_list: Lista ID ECG
-        signals_list: Lista segnali (ogni elemento è un array 1D)
-        leads_list: Lista derivazioni corrispondenti
-        labels_list: Lista labels
-        target_leads: Numero derivazioni target (default 12)
-
-    Returns:
-        X: Array (n_samples, seq_length, num_leads)
-        y: Array labels
-        sample_info: Lista con info (patient, ecg) per ogni campione
+    Ogni finestra temporale di 851ms diventa un campione separato.
     """
 
-    # Raggruppa per (paziente, ECG)
+    # Raggruppa per (paziente, ECG, window_id)
     ecg_data = {}
+    # Tiene traccia del numero di finestre per (paziente, ecg)
+    window_counters = {}
+
     for patient, ecg, signal, lead, label in zip(patients_list, ecgs_list,
                                                  signals_list, leads_list,
                                                  labels_list):
-        key = (patient, ecg)
+
+        # Trova quale finestra è questa per questa combinazione
+        # (paziente, ecg, lead)
+        lead_key = (patient, ecg, lead)
+        if lead_key not in window_counters:
+            window_counters[lead_key] = 0
+        else:
+            window_counters[lead_key] += 1
+
+        window_id = window_counters[lead_key]
+
+        # Chiave finale include window_id
+        key = (patient, ecg, window_id)
+
         if key not in ecg_data:
             ecg_data[key] = {
-                'signals': {},  # Dict: lead -> signal
+                'signals': {},
                 'label': label,
                 'patient': patient,
-                'ecg': ecg
+                'ecg': ecg,
+                'window_id': window_id
             }
+
         ecg_data[key]['signals'][lead] = signal
 
-    # Determina lunghezza massima segnali
+    # Resto della funzione uguale...
     all_signals = []
     for data in ecg_data.values():
         all_signals.extend(data['signals'].values())
     max_length = max(len(signal) for signal in all_signals)
 
-    print(f"Numero campioni ECG: {len(ecg_data)}")
-    print(f"Lunghezza massima segnale: {max_length}")
+    print(f"Numero totale finestre: {len(ecg_data)}")
+    print(f"Lunghezza segnale: {max_length}")
 
     # Costruisci arrays finali
     n_samples = len(ecg_data)
@@ -398,26 +399,22 @@ def organize_ecg_data_for_multihead(patients_list,
     sample_info = []
 
     for i, (key, data) in enumerate(ecg_data.items()):
-        patient, ecg = key
+        patient, ecg, window_id = key
         y.append(data['label'])
-        sample_info.append({'patient': patient, 'ecg': ecg})
+        sample_info.append({
+            'patient': patient,
+            'ecg': ecg,
+            'window_id': window_id
+        })
 
         # Riempi le derivazioni disponibili
-        available_leads = list(data['signals'].keys())
-        print(f"Sample {i}: Patient {patient}, ECG {ecg}, "
-              f"Leads: {available_leads}")
-
         for lead, signal in data['signals'].items():
             if lead in leads_of_interest:
                 lead_idx = leads_of_interest.index(lead)
-                if lead_idx < len(leads_of_interest):
-                    # Padding se il segnale è più corto
-                    padded_signal = np.pad(signal,
-                                           (0, max_length - len(signal)),
-                                           mode='constant', constant_values=0)
-                    X[i, :, lead_idx] = padded_signal
-            # else:
-            #     print(f"Warning: Lead {lead} non standard, saltata")
+                padded_signal = np.pad(signal,
+                                       (0, max_length - len(signal)),
+                                       mode='constant', constant_values=0)
+                X[i, :, lead_idx] = padded_signal
 
     return X, np.array(y), sample_info
 
