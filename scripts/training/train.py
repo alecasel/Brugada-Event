@@ -30,6 +30,8 @@ parser.add_argument('--leads', nargs='+', type=str,
                     help='Leads of Interest')
 parser.add_argument('--cross_attention_heads', type=int, default=3,
                     help='Cross Attention Heads')
+parser.add_argument('--history_name', type=int,
+                    default='history_risk_model.npz', help='History filename')
 
 args = parser.parse_args()
 
@@ -145,5 +147,5 @@ test_output_folder = variables["TEST_OUTPUT_FOLDER"]
 os.makedirs(test_output_folder, exist_ok=True)
 
 np.savez_compressed(
-    os.path.join(test_output_folder, "history_risk_model.npz"),
+    os.path.join(test_output_folder, args.history_name),
     **history.history)
