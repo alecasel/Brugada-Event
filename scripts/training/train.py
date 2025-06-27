@@ -117,9 +117,15 @@ print(f"Y_valid_encoded: {Y_valid_encoded.shape}")
 history = risk_model.fit(
     X_train, Y_train_encoded,
     validation_data=(X_valid, Y_valid_encoded),
-    epochs=1,
+    epochs=200,
     verbose=1,
     batch_size=32,
     callbacks=[early_stopping, reduce_lr],
     class_weight=class_weights
 )
+
+test_output_folder = variables["TEST_OUTPUT_FOLDER"]
+
+np.savez_compressed(
+    os.path.join(test_output_folder, "history_risk_model.npz"),
+    **history.history)
