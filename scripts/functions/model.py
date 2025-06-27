@@ -356,7 +356,7 @@ def build_risk_stratification_model(seq_length,
     return model
 
 
-def compile_risk_model(model):
+def compile_risk_model(model, lr):
     """Compile model with appropriate loss function"""
 
     from tensorflow.keras.optimizers import Adam

@@ -45,7 +45,7 @@ risk_model = build_risk_stratification_model(
     num_heads_cross_attention=args.cross_attention_heads,
     unified_approach=False, risk_output_type='probability')
 
-compile_risk_model(risk_model)
+compile_risk_model(risk_model, args.lr)
 
 for layer in risk_model.layers:
     weights = layer.get_weights()
@@ -91,7 +91,7 @@ class_weights = class_weight.compute_class_weight(
 class_weights = dict(enumerate(class_weights))
 
 reduce_lr = ReduceLROnPlateau(
-    monitor='val_loss', factor=0.25, patience=7, min_lr=args.lr)
+    monitor='val_loss', factor=0.25, patience=7, min_lr=1e-7)
 
 early_stopping = EarlyStopping(
     monitor='val_loss', patience=20, restore_best_weights=True)
