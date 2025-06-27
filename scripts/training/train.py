@@ -17,18 +17,34 @@ from scripts.functions.dataset import organize_ecg_data_for_multihead, \
 import glob
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
 from sklearn.preprocessing import LabelEncoder
+import argparse
+
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument('--lr', type=float, default=1e-7, help='Learning rate')
+parser.add_argument('--epochs', type=int, default=200, help='Number of epochs')
+parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+parser.add_argument('--leads', nargs='+', type=str,
+                    default=['V1', 'V2', 'V3', 'II', 'III', 'aVF'],
+                    help='Leads of Interest')
+parser.add_argument('--cross_attention_heads', type=int, default=3,
+                    help='Cross Attention Heads')
+
+args = parser.parse_args()
 
 
 set_reproducible_config()
 
-leads_of_interest = ['V1', 'V2', 'V3', 'II', 'III', 'aVF']
-leads_to_invert = ['II', 'III', 'aVF']
+leads_of_interest = args.leads
+leads_to_invert = [lead for lead in leads_of_interest
+                   if not lead.startswith('V')]
 
-risk_model = build_risk_stratification_model(seq_length=851,
-                                             num_leads=6,
-                                             num_heads_cross_attention=3,
-                                             unified_approach=False,
-                                             risk_output_type='probability')
+risk_model = build_risk_stratification_model(
+    seq_length=851, num_leads=len(leads_of_interest),
+    num_heads_cross_attention=args.cross_attention_heads,
+    unified_approach=False, risk_output_type='probability')
+
 compile_risk_model(risk_model)
 
 for layer in risk_model.layers:
@@ -75,7 +91,7 @@ class_weights = class_weight.compute_class_weight(
 class_weights = dict(enumerate(class_weights))
 
 reduce_lr = ReduceLROnPlateau(
-    monitor='val_loss', factor=0.25, patience=7, min_lr=1e-7)
+    monitor='val_loss', factor=0.25, patience=7, min_lr=args.lr)
 
 early_stopping = EarlyStopping(
     monitor='val_loss', patience=20, restore_best_weights=True)
@@ -117,14 +133,16 @@ print(f"Y_valid_encoded: {Y_valid_encoded.shape}")
 history = risk_model.fit(
     X_train, Y_train_encoded,
     validation_data=(X_valid, Y_valid_encoded),
-    epochs=200,
-    verbose=1,
-    batch_size=32,
+    epochs=args.epochs,
+    batch_size=args.batch_size,
     callbacks=[early_stopping, reduce_lr],
     class_weight=class_weights
 )
 
 test_output_folder = variables["TEST_OUTPUT_FOLDER"]
+
+# Verifica che la cartella di salvataggio esista, altrimenti la crea
+os.makedirs(test_output_folder, exist_ok=True)
 
 np.savez_compressed(
     os.path.join(test_output_folder, "history_risk_model.npz"),
