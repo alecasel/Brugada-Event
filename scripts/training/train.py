@@ -22,7 +22,14 @@ import argparse
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--lr', type=float, default=1e-7, help='Learning rate')
+parser.add_argument('--lr', type=float, default=1e-7,
+                    help='Learning rate')
+parser.add_argument('--lr_patience', type=int, default=5,
+                    help='Learning rate patience')
+parser.add_argument('--lr_min', type=float, default=1e-6,
+                    help='Min Learning rate')
+parser.add_argument('--patience', type=int, default=20,
+                    help='Patience')
 parser.add_argument('--epochs', type=int, default=200, help='Number of epochs')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
 parser.add_argument('--leads', nargs='+', type=str,
@@ -101,11 +108,14 @@ class_weights = class_weight.compute_class_weight(
     'balanced', classes=np.unique(train_labels), y=train_labels)
 class_weights = dict(enumerate(class_weights))
 
-reduce_lr = ReduceLROnPlateau(
-    monitor='val_loss', factor=0.25, patience=7, min_lr=1e-7)
+reduce_lr = ReduceLROnPlateau(monitor='val_loss',
+                              factor=0.25,
+                              patience=args.lr_patience,
+                              min_lr=args.lr_min)
 
-early_stopping = EarlyStopping(
-    monitor='val_loss', patience=20, restore_best_weights=True)
+early_stopping = EarlyStopping(monitor='val_loss',
+                               patience=args.patience,
+                               restore_best_weights=True)
 
 # Applica la trasformazione
 print("Elaborazione training set...")
@@ -152,7 +162,6 @@ history = risk_model.fit(
 
 test_output_folder = variables["TEST_OUTPUT_FOLDER"]
 
-# Verifica che la cartella di salvataggio esista, altrimenti la crea
 os.makedirs(test_output_folder, exist_ok=True)
 
 np.savez_compressed(
