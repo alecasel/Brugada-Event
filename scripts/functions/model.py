@@ -362,7 +362,7 @@ def compile_risk_model(model, lr):
     from tensorflow.keras.optimizers import Adam
 
     optimizer = Adam(
-        learning_rate=1e-4,
+        learning_rate=lr,
         beta_1=0.9,
         beta_2=0.99,
         epsilon=1e-7,
