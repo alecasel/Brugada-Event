@@ -37,7 +37,8 @@ def select_data(patients_list,
                 leads_list,
                 signals_list,
                 leads_of_interest,
-                leads_to_invert):
+                leads_to_invert,
+                patients_to_exclude):
     """
     """
 
@@ -49,7 +50,8 @@ def select_data(patients_list,
     new_signals_list = []
 
     for i, lead in enumerate(leads_list):
-        if lead in leads_of_interest:
+        if (lead in leads_of_interest and
+                patients_list[i] not in patients_to_exclude):
             signal = signals_list[i]
             if lead in leads_to_invert:
                 inverted_signal = -signal

@@ -30,8 +30,15 @@ parser.add_argument('--leads', nargs='+', type=str,
                     help='Leads of Interest')
 parser.add_argument('--cross_attention_heads', type=int, default=3,
                     help='Cross Attention Heads')
-parser.add_argument('--history_name', type=int,
+parser.add_argument('--history_name', type=str,
                     default='history_risk_model.npz', help='History filename')
+parser.add_argument('--children', nargs='+', type=str,
+                    default=[''],
+                    help='Children: to exclude from the analysis')
+parser.add_argument('--no_type_1', nargs='+', type=str,
+                    default=[''],
+                    help='Patients without BrP type 1: ' +
+                         'to exclude from the analysis')
 
 args = parser.parse_args()
 
@@ -40,7 +47,7 @@ set_reproducible_config()
 
 leads_of_interest = args.leads
 leads_to_invert = [lead for lead in leads_of_interest
-                   if not lead.startswith('V')]
+                   if not lead.startswith('V') and lead != 'aVR']
 
 risk_model = build_risk_stratification_model(
     seq_length=851, num_leads=len(leads_of_interest),
@@ -72,7 +79,9 @@ patients_list, ecgs_list, labels_event_list, \
         leads_list,
         signals_list,
         leads_of_interest=leads_of_interest,
-        leads_to_invert=leads_to_invert)
+        leads_to_invert=leads_to_invert,
+        patients_to_exclude=args.children + args.no_type_1
+    )
 
 # Crea una lista di tuple per raggruppare i dati
 data = list(zip(patients_list, ecgs_list, labels_event_list,
