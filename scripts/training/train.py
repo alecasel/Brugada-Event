@@ -15,7 +15,7 @@ from scripts.functions.dataset import organize_ecg_data_for_multihead, \
     print_data_summary, select_data, prepare_brugada_dataset, unpack_data, \
     split_data
 import glob
-from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
+from keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint
 from sklearn.preprocessing import LabelEncoder
 import argparse
 
@@ -108,15 +108,6 @@ class_weights = class_weight.compute_class_weight(
     'balanced', classes=np.unique(train_labels), y=train_labels)
 class_weights = dict(enumerate(class_weights))
 
-reduce_lr = ReduceLROnPlateau(monitor='val_loss',
-                              factor=0.25,
-                              patience=args.lr_patience,
-                              min_lr=args.lr_min)
-
-early_stopping = EarlyStopping(monitor='val_loss',
-                               patience=args.patience,
-                               restore_best_weights=True)
-
 # Applica la trasformazione
 print("Elaborazione training set...")
 X_train, Y_train, train_sample_info = organize_ecg_data_for_multihead(
@@ -151,12 +142,37 @@ print(f"X_valid: {X_valid.shape}")
 print(f"Y_train_encoded: {Y_train_encoded.shape}")
 print(f"Y_valid_encoded: {Y_valid_encoded.shape}")
 
+reduce_lr = ReduceLROnPlateau(monitor='val_loss',
+                              factor=0.25,
+                              patience=args.lr_patience,
+                              min_lr=args.lr_min)
+
+early_stopping = EarlyStopping(monitor='val_loss',
+                               patience=args.patience,
+                               restore_best_weights=True)
+
+checkpoint_loss = ModelCheckpoint(
+    'best_weights_val_loss.h5', monitor='val_loss',
+    save_best_only=True, mode='min', verbose=1
+)
+
+checkpoint_auc = ModelCheckpoint(
+    'best_weights_val_auc.h5', monitor='val_auc',
+    save_best_only=True, mode='max', verbose=1
+)
+
+checkpoint_acc = ModelCheckpoint(
+    'best_weights_val_accuracy.h5', monitor='val_binary_accuracy',
+    save_best_only=True, mode='max', verbose=1
+)
+
 history = risk_model.fit(
     X_train, Y_train_encoded,
     validation_data=(X_valid, Y_valid_encoded),
     epochs=args.epochs,
     batch_size=args.batch_size,
-    callbacks=[early_stopping, reduce_lr],
+    callbacks=[early_stopping, reduce_lr, checkpoint_loss,
+               checkpoint_auc, checkpoint_acc],
     class_weight=class_weights
 )
 
