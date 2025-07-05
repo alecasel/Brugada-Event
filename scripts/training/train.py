@@ -49,8 +49,12 @@ parser.add_argument('--no_type_1', nargs='+', type=str,
 
 args = parser.parse_args()
 
-
 set_reproducible_config()
+
+variables = import_variables_from_yaml("configuration/configuration.yaml")
+
+test_output_folder = variables["TEST_OUTPUT_FOLDER"]
+os.makedirs(test_output_folder, exist_ok=True)
 
 leads_of_interest = args.leads
 leads_to_invert = [lead for lead in leads_of_interest
@@ -66,9 +70,6 @@ compile_risk_model(risk_model, args.lr)
 for layer in risk_model.layers:
     weights = layer.get_weights()
     print(f"{layer.name}: {'✔️' if weights else '❌'}")
-
-
-variables = import_variables_from_yaml("configuration/configuration.yaml")
 
 mat_folder = variables['EVENT_MAT_FOLDER']
 mat_files = glob.glob(os.path.join(mat_folder, "*.mat"))
@@ -152,17 +153,20 @@ early_stopping = EarlyStopping(monitor='val_loss',
                                restore_best_weights=True)
 
 checkpoint_loss = ModelCheckpoint(
-    'best_weights_val_loss.h5', monitor='val_loss',
+    os.path.join(test_output_folder, 'best_weights_val_loss.h5'),
+    monitor='val_loss',
     save_best_only=True, mode='min', verbose=1
 )
 
 checkpoint_auc = ModelCheckpoint(
-    'best_weights_val_auc.h5', monitor='val_auc',
+    os.path.join(test_output_folder, 'best_weights_val_auc.h5'),
+    monitor='val_auc',
     save_best_only=True, mode='max', verbose=1
 )
 
 checkpoint_acc = ModelCheckpoint(
-    'best_weights_val_accuracy.h5', monitor='val_binary_accuracy',
+    os.path.join(test_output_folder, 'best_weights_val_accuracy.h5'),
+    monitor='val_binary_accuracy',
     save_best_only=True, mode='max', verbose=1
 )
 
@@ -175,10 +179,6 @@ history = risk_model.fit(
                checkpoint_auc, checkpoint_acc],
     class_weight=class_weights
 )
-
-test_output_folder = variables["TEST_OUTPUT_FOLDER"]
-
-os.makedirs(test_output_folder, exist_ok=True)
 
 np.savez_compressed(
     os.path.join(test_output_folder, args.history_name),
